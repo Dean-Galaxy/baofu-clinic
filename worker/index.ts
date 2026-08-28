@@ -5,6 +5,7 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  GEMINI_API_KEY?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -28,6 +29,16 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // Sites exposes runtime secrets as Worker bindings. Keep a server-only
+    // reference available to App Router handlers without serializing it into
+    // any client bundle or response.
+    const runtimeGlobal = globalThis as typeof globalThis & {
+      __BAOFU_RUNTIME_SECRETS__?: { GEMINI_API_KEY?: string };
+    };
+    runtimeGlobal.__BAOFU_RUNTIME_SECRETS__ = {
+      GEMINI_API_KEY: env.GEMINI_API_KEY,
+    };
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];

@@ -80,7 +80,10 @@ export async function POST(request: Request) {
     if (text.length > 5000) return NextResponse.json({ detail: "单次诊断不能超过 5,000 字。" }, { status: 400 });
     if (!isMode(body.mode)) return NextResponse.json({ detail: "不支持的诊断模式。" }, { status: 400 });
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const runtimeGlobal = globalThis as typeof globalThis & {
+      __BAOFU_RUNTIME_SECRETS__?: { GEMINI_API_KEY?: string };
+    };
+    const apiKey = process.env.GEMINI_API_KEY || runtimeGlobal.__BAOFU_RUNTIME_SECRETS__?.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ detail: "线上 AI 服务正在配置，请稍后再试。" }, { status: 503 });
     }
