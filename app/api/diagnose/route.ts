@@ -71,6 +71,22 @@ function isMode(value: unknown): value is Mode {
   return value === "elements" || value === "expectation";
 }
 
+function collectTextContent(value: unknown, result: string[] = []): string[] {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectTextContent(item, result));
+    return result;
+  }
+  if (!value || typeof value !== "object") return result;
+
+  const record = value as Record<string, unknown>;
+  if (record.type === "text" && typeof record.text === "string") {
+    result.push(record.text);
+    return result;
+  }
+  Object.values(record).forEach((item) => collectTextContent(item, result));
+  return result;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { text?: unknown; mode?: unknown };
@@ -91,17 +107,23 @@ export async function POST(request: Request) {
     const systemPrompt = body.mode === "elements" ? ELEMENTS_PROMPT : EXPECTATION_PROMPT;
     const schema = body.mode === "elements" ? ELEMENTS_SCHEMA : EXPECTATION_SCHEMA;
     const geminiResponse = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/interactions",
       {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: "user", parts: [{ text: `待诊断文稿：\n${text}` }] }],
-          generationConfig: {
+          model: "gemini-3.6-flash",
+          system_instruction: systemPrompt,
+          input: `待诊断文稿：\n${text}`,
+          store: false,
+          generation_config: {
             temperature: 0.2,
-            responseMimeType: "application/json",
-            responseSchema: schema,
+            max_output_tokens: 4096,
+          },
+          response_format: {
+            type: "text",
+            mime_type: "application/json",
+            schema,
           },
         }),
         signal: AbortSignal.timeout(45_000),
@@ -115,9 +137,16 @@ export async function POST(request: Request) {
     }
 
     const geminiPayload = await geminiResponse.json() as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      output_text?: string;
+      interaction?: { output_text?: string; steps?: unknown[] };
+      steps?: unknown[];
     };
-    const raw = geminiPayload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "";
+    const interaction = geminiPayload.interaction || geminiPayload;
+    const collectedText = collectTextContent(interaction.steps);
+    const raw = interaction.output_text
+      || [...collectedText].reverse().find((item) => item.trim().startsWith("{"))
+      || collectedText.at(-1)
+      || "";
     if (!raw) return NextResponse.json({ detail: "AI 未返回有效诊断，请换一段文稿重试。" }, { status: 502 });
 
     const data = JSON.parse(raw);
