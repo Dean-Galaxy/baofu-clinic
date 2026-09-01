@@ -87,6 +87,22 @@ function collectTextContent(value: unknown, result: string[] = []): string[] {
   return result;
 }
 
+function parseStructuredJson(raw: string): unknown {
+  const trimmed = raw.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const withoutFence = trimmed
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/, "")
+      .trim();
+    const firstBrace = withoutFence.indexOf("{");
+    const lastBrace = withoutFence.lastIndexOf("}");
+    if (firstBrace < 0 || lastBrace <= firstBrace) throw new SyntaxError("Structured output is incomplete");
+    return JSON.parse(withoutFence.slice(firstBrace, lastBrace + 1));
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { text?: unknown; mode?: unknown };
@@ -118,7 +134,7 @@ export async function POST(request: Request) {
           store: false,
           generation_config: {
             temperature: 0.2,
-            max_output_tokens: 4096,
+            max_output_tokens: 32768,
           },
           response_format: {
             type: "text",
@@ -126,7 +142,7 @@ export async function POST(request: Request) {
             schema,
           },
         }),
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(90_000),
       },
     );
 
@@ -138,7 +154,14 @@ export async function POST(request: Request) {
 
     const geminiPayload = await geminiResponse.json() as {
       output_text?: string;
-      interaction?: { output_text?: string; steps?: unknown[] };
+      status?: string;
+      usage?: { total_output_tokens?: number };
+      interaction?: {
+        output_text?: string;
+        status?: string;
+        usage?: { total_output_tokens?: number };
+        steps?: unknown[];
+      };
       steps?: unknown[];
     };
     const interaction = geminiPayload.interaction || geminiPayload;
@@ -149,7 +172,21 @@ export async function POST(request: Request) {
       || "";
     if (!raw) return NextResponse.json({ detail: "AI 未返回有效诊断，请换一段文稿重试。" }, { status: 502 });
 
-    const data = JSON.parse(raw);
+    let data: unknown;
+    try {
+      data = parseStructuredJson(raw);
+    } catch {
+      console.error("Gemini returned invalid structured output", {
+        status: interaction.status,
+        outputTokens: interaction.usage?.total_output_tokens,
+        outputCharacters: raw.length,
+        appearsComplete: raw.trim().endsWith("}"),
+      });
+      return NextResponse.json(
+        { detail: "AI 返回的诊断不完整，请重试；如果文稿较长，建议按完整段子分段诊断。" },
+        { status: 502 },
+      );
+    }
     return NextResponse.json({ status: "success", mode: body.mode, data });
   } catch (error) {
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
