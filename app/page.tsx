@@ -49,7 +49,8 @@ const TYPE_META: Record<ScriptType, { code: string; className: string }> = {
   混合: { code: "M", className: "mix" },
 };
 
-function LoadingResult({ mode }: { mode: Mode }) {
+function LoadingResult({ mode, characterCount }: { mode: Mode; characterCount: number }) {
+  const isLongDraft = characterCount >= 1200;
   return (
     <div className="loading-state" role="status" aria-live="polite">
       <div className="scan-mark" aria-hidden="true">
@@ -60,7 +61,9 @@ function LoadingResult({ mode }: { mode: Mode }) {
       <p className="loading-kicker">EDITOR IS READING</p>
       <h2>正在拆解你的段子…</h2>
       <p>
-        {mode === "elements"
+        {isLongDraft
+          ? `正在处理 ${characterCount.toLocaleString("zh-CN")} 字长文稿，通常需要 40–120 秒，请勿重复提交`
+          : mode === "elements"
           ? "逐句标记结构，检查铺垫与笑点密度"
           : "对齐假定 A 与真实 B，寻找关键连接点"}
       </p>
@@ -290,7 +293,7 @@ export default function Home() {
           </section>
 
           <section className="result-panel" aria-live="polite">
-            {loading ? <LoadingResult mode={mode} /> : !result ? <EmptyResult mode={mode} /> : mode === "elements" ? (
+            {loading ? <LoadingResult mode={mode} characterCount={text.trim().length} /> : !result ? <EmptyResult mode={mode} /> : mode === "elements" ? (
               <ElementsReport data={result as ElementsResult} />
             ) : (
               <ExpectationReport data={result as ExpectationResult} />

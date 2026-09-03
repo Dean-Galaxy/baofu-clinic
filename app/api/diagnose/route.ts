@@ -135,6 +135,7 @@ export async function POST(request: Request) {
           generation_config: {
             temperature: 0.2,
             max_output_tokens: 32768,
+            thinking_level: "low",
           },
           response_format: {
             type: "text",
@@ -142,7 +143,7 @@ export async function POST(request: Request) {
             schema,
           },
         }),
-        signal: AbortSignal.timeout(90_000),
+        signal: AbortSignal.timeout(150_000),
       },
     );
 
