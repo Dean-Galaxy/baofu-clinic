@@ -1,0 +1,11 @@
+.git
+.next
+.openai
+.wrangler
+dist
+node_modules
+npm-debug.log*
+.env*
+!.env.example
+*.tar.gz
+
