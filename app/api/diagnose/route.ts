@@ -2,6 +2,17 @@ import { NextResponse } from "next/server";
 
 type Mode = "elements" | "expectation";
 
+type GeminiError = {
+  error?: {
+    code?: string;
+    message?: string;
+  };
+};
+
+const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
+const REQUEST_DEADLINE_MS = 170_000;
+const MAX_RATE_LIMIT_WAIT_SECONDS = 12;
+
 const ELEMENTS_PROMPT = `
 你是一位严格、具体、不说套话的中文脱口秀总编剧。请根据“四大元素”诊断用户提交的单个段子。
 
@@ -22,6 +33,7 @@ const ELEMENTS_PROMPT = `
 - script_map 必须按原文顺序覆盖所有句子，不得改写或遗漏原文内容。
 - 不要因为一句不好笑就默认它是“前提”，应按句子在结构中的功能分类。
 - 指出具体词句和可执行修改，避免“加强节奏”这类空泛结论。
+- 长文也要保持报告精简：rhythm_diagnosis 不超过 240 个汉字，fluff_warning 不超过 180 个汉字，improvement_suggestions 不超过 300 个汉字；不要重复复述原文。
 - 只输出符合给定 schema 的 JSON。`;
 
 const EXPECTATION_PROMPT = `
@@ -144,6 +156,26 @@ function normalizeElementsResult(value: unknown): unknown {
   };
 }
 
+function parseGeminiError(raw: string): GeminiError {
+  try {
+    return JSON.parse(raw) as GeminiError;
+  } catch {
+    return {};
+  }
+}
+
+function getRetryDelaySeconds(response: Response, raw: string): number | null {
+  const headerSeconds = Number(response.headers.get("retry-after"));
+  const messageSeconds = Number(raw.match(/retry in ([\d.]+)s/i)?.[1]);
+  const seconds = Number.isFinite(headerSeconds) && headerSeconds > 0 ? headerSeconds : messageSeconds;
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.ceil(seconds);
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { text?: unknown; mode?: unknown };
@@ -163,34 +195,64 @@ export async function POST(request: Request) {
 
     const systemPrompt = body.mode === "elements" ? ELEMENTS_PROMPT : EXPECTATION_PROMPT;
     const schema = body.mode === "elements" ? ELEMENTS_SCHEMA : EXPECTATION_SCHEMA;
-    const geminiResponse = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/interactions",
-      {
+    const geminiRequestBody = JSON.stringify({
+      model: "gemini-3.6-flash",
+      system_instruction: systemPrompt,
+      input: `待诊断文稿：\n${text}`,
+      store: false,
+      generation_config: {
+        temperature: 0.2,
+        max_output_tokens: 16384,
+        thinking_level: "low",
+      },
+      response_format: {
+        type: "text",
+        mime_type: "application/json",
+        schema,
+      },
+    });
+    const deadline = Date.now() + REQUEST_DEADLINE_MS;
+    const callGemini = () => fetch(GEMINI_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-        body: JSON.stringify({
-          model: "gemini-3.6-flash",
-          system_instruction: systemPrompt,
-          input: `待诊断文稿：\n${text}`,
-          store: false,
-          generation_config: {
-            temperature: 0.2,
-            max_output_tokens: 32768,
-            thinking_level: "low",
-          },
-          response_format: {
-            type: "text",
-            mime_type: "application/json",
-            schema,
-          },
-        }),
-        signal: AbortSignal.timeout(150_000),
-      },
-    );
+        body: geminiRequestBody,
+        signal: AbortSignal.timeout(Math.max(5_000, Math.min(150_000, deadline - Date.now()))),
+      });
+
+    let geminiResponse = await callGemini();
+    let geminiErrorBody = geminiResponse.ok ? "" : await geminiResponse.text();
+
+    if (geminiResponse.status === 429) {
+      const geminiError = parseGeminiError(geminiErrorBody);
+      const retryDelay = getRetryDelaySeconds(geminiResponse, geminiErrorBody);
+      const isTransient = geminiError.error?.code === "too_many_requests" || /retry in/i.test(geminiErrorBody);
+      if (isTransient && retryDelay && retryDelay <= MAX_RATE_LIMIT_WAIT_SECONDS) {
+        await wait((retryDelay + 1) * 1_000);
+        geminiResponse = await callGemini();
+        geminiErrorBody = geminiResponse.ok ? "" : await geminiResponse.text();
+      }
+    }
 
     if (!geminiResponse.ok) {
-      const errorBody = await geminiResponse.text();
-      console.error("Gemini API error", geminiResponse.status, errorBody.slice(0, 500));
+      const geminiError = parseGeminiError(geminiErrorBody);
+      const retryDelay = getRetryDelaySeconds(geminiResponse, geminiErrorBody);
+      console.error("Gemini API error", geminiResponse.status, geminiError.error?.code || "unknown");
+      if (geminiResponse.status === 429) {
+        const isDailyQuota = geminiError.error?.code === "quota_exceeded";
+        const detail = isDailyQuota
+          ? "今日 AI 诊断额度已用完，请明天再试或联系站长升级额度。"
+          : `当前使用人数较多，请${retryDelay ? `等待约 ${retryDelay} 秒后` : "稍后"}再试。`;
+        return NextResponse.json(
+          { detail, retry_after_seconds: retryDelay },
+          {
+            status: 429,
+            headers: retryDelay ? { "Retry-After": String(retryDelay) } : undefined,
+          },
+        );
+      }
+      if (geminiResponse.status === 401 || geminiResponse.status === 403) {
+        return NextResponse.json({ detail: "AI 服务配置异常，请联系站长检查额度或密钥。" }, { status: 503 });
+      }
       return NextResponse.json({ detail: "AI 编剧暂时没有回应，请稍后重试。" }, { status: 502 });
     }
 
