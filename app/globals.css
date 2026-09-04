@@ -206,14 +206,20 @@ main {
 .script-map { border: 1px solid var(--ink); }
 .script-line { display: grid; grid-template-columns: 32px 1fr 45px; gap: 12px; align-items: start; padding: 14px 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--type) 42%, white); }
 .script-line:last-child { border-bottom: 0; }
-.script-line p { margin: 0; font-size: 14px; line-height: 1.65; }
+.script-line-content > p { margin: 0; font-size: 14px; line-height: 1.65; }
 .type-code { display: grid; place-items: center; width: 25px; height: 25px; border: 1px solid var(--ink); background: var(--type); font: 900 11px/1 Arial; }
 .type-name { padding-top: 5px; font-size: 11px; font-weight: 800; text-align: right; }
+.premise-summary { grid-column: 1 / -1; margin-top: 11px; padding: 12px 14px 13px; border-left: 3px solid #ff4f55; background: rgba(255,255,255,.68); }
+.script-map > .premise-summary { margin: 0; border-bottom: 1px solid var(--line); }
+.premise-summary-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: #b92d34; font-size: 12px; font-weight: 900; letter-spacing: .08em; }
+.emotion-chip { padding: 3px 6px; border: 1px solid #ff777c; background: #fff1f1; color: #a42128; font-size: 12px; line-height: 1; letter-spacing: 0; }
+.premise-summary strong { display: block; color: #ff424a; font-size: clamp(17px, 2vw, 22px); line-height: 1.45; }
 .diagnosis-grid { margin-top: 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .diagnosis-card { position: relative; padding: 20px; border: 1px solid var(--ink); background: #f1efe8; min-height: 150px; }
 .diagnosis-card.wide { grid-column: span 2; min-height: 128px; }
 .diagnosis-card.warning { background: #fff3dd; }
 .diagnosis-card.suggestion { background: #ebf0d8; }
+.diagnosis-card.premise-evidence { background: #edf4fa; border-left: 5px solid var(--blue); }
 .card-number { position: absolute; right: 16px; top: 14px; color: #bbb8ae; font: 900 24px/1 Arial; }
 .card-label { margin: 0 0 13px !important; font-size: 12px !important; font-weight: 900; }
 .diagnosis-card > p:last-child { margin: 0; font-size: 13px; line-height: 1.75; white-space: pre-wrap; }

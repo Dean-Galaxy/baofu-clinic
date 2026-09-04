@@ -7,6 +7,12 @@ type ScriptType = "前提" | "呈现" | "吐槽" | "混合";
 
 type ElementsResult = {
   script_map: Array<{ text: string; type: ScriptType }>;
+  premise_extraction?: {
+    situation: string;
+    emotion: "困难" | "可怕" | "愚蠢" | "奇怪";
+    statement: string;
+    evidence: string;
+  };
   rhythm_diagnosis: string;
   fluff_warning: string;
   improvement_suggestions: string;
@@ -101,6 +107,17 @@ function ElementsReport({ data }: { data: ElementsResult }) {
     return base;
   }, [data]);
   const total = Math.max(data.script_map.length, 1);
+  const firstPremiseIndex = data.script_map.findIndex((item) => item.type === "前提");
+
+  const premiseSummary = data.premise_extraction && (
+    <div className="premise-summary">
+      <div className="premise-summary-heading">
+        <span>提炼前提</span>
+        <span className="emotion-chip">{data.premise_extraction.emotion}</span>
+      </div>
+      <strong>{data.premise_extraction.statement}</strong>
+    </div>
+  );
 
   return (
     <div className="report elements-report">
@@ -121,26 +138,36 @@ function ElementsReport({ data }: { data: ElementsResult }) {
       </div>
 
       <div className="script-map">
+        {firstPremiseIndex < 0 && premiseSummary}
         {data.script_map.map((item, index) => (
           <div className={`script-line ${TYPE_META[item.type].className}`} key={`${index}-${item.text.slice(0, 8)}`}>
             <span className="type-code">{TYPE_META[item.type].code}</span>
-            <p>{item.text}</p>
+            <div className="script-line-content">
+              <p>{item.text}</p>
+              {index === firstPremiseIndex && premiseSummary}
+            </div>
             <span className="type-name">{item.type}</span>
           </div>
         ))}
       </div>
 
       <div className="diagnosis-grid">
+        {data.premise_extraction && (
+          <article className="diagnosis-card premise-evidence wide">
+            <span className="card-number">01</span><p className="card-label">前提依据</p>
+            <p>{data.premise_extraction.evidence}</p>
+          </article>
+        )}
         <article className="diagnosis-card wide">
-          <span className="card-number">01</span><p className="card-label">节奏与比例</p>
+          <span className="card-number">02</span><p className="card-label">节奏与比例</p>
           <p>{data.rhythm_diagnosis}</p>
         </article>
         <article className="diagnosis-card warning">
-          <span className="card-number">02</span><p className="card-label">减法警报</p>
+          <span className="card-number">03</span><p className="card-label">减法警报</p>
           <p>{data.fluff_warning}</p>
         </article>
         <article className="diagnosis-card suggestion">
-          <span className="card-number">03</span><p className="card-label">改写方向</p>
+          <span className="card-number">04</span><p className="card-label">改写方向</p>
           <p>{data.improvement_suggestions}</p>
         </article>
       </div>

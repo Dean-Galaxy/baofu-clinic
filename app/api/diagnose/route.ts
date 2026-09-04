@@ -11,6 +11,13 @@ const ELEMENTS_PROMPT = `
 3. 吐槽：态度宣泄、反驳、荒谬点评或逻辑剖析。
 4. 混合：沿着错误逻辑继续想象和延展，通常边演边评。
 
+核心前提提炼：
+- 在逐句分类之外，还必须提炼整段段子隐含的一个核心前提。它不是简单摘抄被标为“前提”的原句，而是从开头情节、动作、对话、心理活动和吐槽中推断出来。
+- 先找出表演者反复围绕的最具体生活情境或触发事件，例如“和同事上班打招呼”“在餐厅点餐”“坐地铁通勤”，不得只写“生活”“工作”“人际关系”等抽象主题。
+- 再从“困难、可怕、愚蠢、奇怪”中选择且只能选择一个贯穿始终、最根本的主导情绪。不要增加近义词或第五种情绪。
+- premise_extraction.statement 必须使用“【具体情境】让我感到【情绪】”的完整句式；situation 只写具体情境，emotion 只写上述四种情绪之一。
+- premise_extraction.evidence 必须恰好写两句话：第一句指出原文中哪些动作、对话或心理活动支持这一判断；第二句说明为什么所选情绪是贯穿段子的主导情绪。不要用分号把两句合并，也不要展示内部推理过程。
+
 要求：
 - script_map 必须按原文顺序覆盖所有句子，不得改写或遗漏原文内容。
 - 不要因为一句不好笑就默认它是“前提”，应按句子在结构中的功能分类。
@@ -46,11 +53,21 @@ const ELEMENTS_SCHEMA = {
         required: ["text", "type"],
       },
     },
+    premise_extraction: {
+      type: "object",
+      properties: {
+        situation: { type: "string" },
+        emotion: { type: "string", enum: ["困难", "可怕", "愚蠢", "奇怪"] },
+        statement: { type: "string" },
+        evidence: { type: "string" },
+      },
+      required: ["situation", "emotion", "statement", "evidence"],
+    },
     rhythm_diagnosis: { type: "string" },
     fluff_warning: { type: "string" },
     improvement_suggestions: { type: "string" },
   },
-  required: ["script_map", "rhythm_diagnosis", "fluff_warning", "improvement_suggestions"],
+  required: ["script_map", "premise_extraction", "rhythm_diagnosis", "fluff_warning", "improvement_suggestions"],
 };
 
 const EXPECTATION_SCHEMA = {
@@ -101,6 +118,30 @@ function parseStructuredJson(raw: string): unknown {
     if (firstBrace < 0 || lastBrace <= firstBrace) throw new SyntaxError("Structured output is incomplete");
     return JSON.parse(withoutFence.slice(firstBrace, lastBrace + 1));
   }
+}
+
+const PREMISE_EMOTIONS = new Set(["困难", "可怕", "愚蠢", "奇怪"]);
+
+function normalizeElementsResult(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const result = value as Record<string, unknown>;
+  const premise = result.premise_extraction;
+  if (!premise || typeof premise !== "object") return value;
+
+  const premiseRecord = premise as Record<string, unknown>;
+  const situation = typeof premiseRecord.situation === "string" ? premiseRecord.situation.trim() : "";
+  const emotion = typeof premiseRecord.emotion === "string" ? premiseRecord.emotion : "";
+  if (!situation || !PREMISE_EMOTIONS.has(emotion)) return value;
+
+  return {
+    ...result,
+    premise_extraction: {
+      ...premiseRecord,
+      situation,
+      emotion,
+      statement: `${situation}让我感到${emotion}`,
+    },
+  };
 }
 
 export async function POST(request: Request) {
@@ -188,6 +229,7 @@ export async function POST(request: Request) {
         { status: 502 },
       );
     }
+    if (body.mode === "elements") data = normalizeElementsResult(data);
     return NextResponse.json({ status: "success", mode: body.mode, data });
   } catch (error) {
     if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
