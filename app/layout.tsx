@@ -7,8 +7,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") || requestHeaders.get("host") || "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "包袱诊断室 · AI 脱口秀文稿诊断";
-  const description = "用四大元素和预期违背两套方法，快速诊断脱口秀文稿的结构、节奏与包袱。";
+  const title = "AI 工具箱 · 把重复工作交给 AI";
+  const description = "一个持续扩展的 AI 创作工具箱，从脱口秀文稿诊断开始，让每个工具解决一件具体的事。";
 
   return {
     metadataBase: new URL(origin),
